@@ -1,17 +1,20 @@
 #include <SD.h>
 File dataFile;
 const int chipSelect = 4;
-const int redLed = A0;
-const int power = A1;
 const int sensor = A2;
-const int gnd = A3;
-const int gnd2 = A4;
+const int LED_pin = A0;
+
+//LED trackers
+bool led_status = 0;
+long int ledcnt = 0;
 
 //Clock is at 2MHz
 // 5000 Hz = 2 000 000 / 400
-long int timer1_period = 200; 
+void timer1_init();
+long int timer1_period = 800; 
 int write_buffer=false;
 //Work with timer 1 since it's 16 bit
+
 
 void timer1_init()//makes timer 1 a 5000Hz counter
 {
@@ -46,18 +49,15 @@ void timer1_init()//makes timer 1 a 5000Hz counter
 }
 
 
-const uint8_t BUFFER_SIZE = 512;
-uint8_t BUFFER[2][BUFFER_SIZE];
+
+
+//Buffer variables
+const uint8_t BUFFER_SIZE = 128;
+uint8_t BUFFER0[BUFFER_SIZE];
+uint8_t BUFFER1[BUFFER_SIZE];
 int active_buff=0;
 int buffer_index=0;
 
-
-
-
-
-const int LED_pin = A0;
-bool led_status = 0;
-long int ledcnt = 0;
 void setup()
 {
 
@@ -67,7 +67,8 @@ void setup()
 
   pinMode(LED_pin, OUTPUT);
   pinMode(10, OUTPUT);
-
+  pinMode(sensor, INPUT);
+  
   Serial.println("Starting SD card");
   
   if(!SD.begin(chipSelect)){
@@ -93,19 +94,10 @@ void setup()
   //enable interrupts
 //  interrupts();
   sei(); //global interrupts
-  
-  
-  
-  
 }
 
 void loop()
-{
-  
-  
- // if(write_buffer)
- //   save_data(BUFFER[1-active_buffer]);
- 
+{  
    if(write_buffer)
   {
     Serial.print("Writing ");
@@ -114,9 +106,14 @@ void loop()
     dataFile = SD.open("DATA.TXT", FILE_WRITE);
     if(dataFile){
        Serial.print("data (");
-      int numbits = dataFile.write(BUFFER[1-active_buff],BUFFER_SIZE);
+       uint16_t nbits=-1;
+       if(1-active_buff == 0){
+        nbits = dataFile.write(BUFFER0,BUFFER_SIZE);
+       }else{
+        nbits = dataFile.write(BUFFER1,BUFFER_SIZE);
+       }
       dataFile.close();
-      Serial.print(numbits);
+      Serial.print(nbits);
       Serial.println(" bytes)");
       
     }else{
@@ -140,24 +137,31 @@ void loop()
 ISR(TIMER1_OVF_vect)
 {
  //add data to BUFFER[active_buffer]
-  digitalWrite(LED_pin,1);
+  uint8_t* buff;
+  if(active_buff==0)
+  {
+    buff = BUFFER0;
+  }else
+  {
+    buff=BUFFER1;
+  }
   
   //micros() is fast & uses Timer0. Need to convert from unsigned long.
   uint16_t time = (uint16_t) micros();
   //low byte
-  BUFFER[active_buff][buffer_index] = (byte)time;
+  buff[buffer_index] = (byte)time;
   buffer_index++;
   //high byte
-  BUFFER[active_buff][buffer_index] = (time >> 8);
+  buff[buffer_index] = (time >> 8);
   buffer_index++;
   
   //analogRead takes 100micros, so this might be a problem
   //low byte
   uint16_t val = analogRead(sensor);
-  BUFFER[active_buff][buffer_index] =  (byte)val;
+  buff[buffer_index] =  (byte)val;
   buffer_index++;  
   //high byte
-  BUFFER[active_buff][buffer_index] = (val >> 8);
+  buff[buffer_index] = (val >> 8);
   buffer_index++;
 
   //Check if we need to switch buffers
@@ -170,3 +174,4 @@ ISR(TIMER1_OVF_vect)
 
   ledcnt++;
 }
+ 
